@@ -378,7 +378,7 @@ const screenPageHTML = `<!doctype html>
 </html>`
 
 func main() {
-	addr := envOrDefault("ADDR", ":8080")
+	addr := envOrDefault("ADDR", ":4321")
 	publicKeyPath := envOrDefault("PUBLIC_KEY_PATH", "public.asc")
 	privateKeyPath := envOrDefault("PRIVATE_KEY_PATH", "private.asc")
 	storagePath := envOrDefault("REPORT_STORAGE", "reports.jsonl")
