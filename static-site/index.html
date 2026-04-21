@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audience Encrypt Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.11.3/dist/openpgp.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Courier New", Courier, monospace;
+      background: #f4f9f4;
+      color: #132a13;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+    .wrap {
+      width: min(760px, 100%);
+      background: #ffffff;
+      border: 2px solid #132a13;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+    }
+    h1 { margin-top: 0; }
+    label { font-weight: 700; }
+    input, textarea, button {
+      width: 100%;
+      margin-top: 8px;
+      margin-bottom: 12px;
+      padding: 11px;
+      border: 1px solid #132a13;
+      border-radius: 8px;
+      font: inherit;
+    }
+    textarea {
+      min-height: 240px;
+      border: 2px solid #2f5d50;
+      border-radius: 12px;
+      background: #fbfffb;
+    }
+    button {
+      background: #31572c;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .ok { color: #1d6b31; }
+    .err { color: #9b2226; }
+    .username {
+      display: inline-block;
+      background: #fff4cc;
+      border: 1px solid #f1c75b;
+      color: #7c2d12;
+      border-radius: 999px;
+      padding: 6px 12px;
+      margin: 4px 0 10px;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>PGP Live Audience Demo</h1>
+    <p>Nhập bất kỳ câu nào. Trình duyệt sẽ mã hóa PGP trước khi gửi.</p>
+
+    <label for="backend">Backend URL</label>
+    <input id="backend" placeholder="https://your-backend.example.com" />
+
+    <div id="username" class="username"></div>
+
+    <label for="message">Tin nhắn</label>
+    <textarea id="message" placeholder="Xin chao tu dien thoai cua toi"></textarea>
+
+    <button id="send">Encrypt and Send</button>
+    <p id="status"></p>
+  </main>
+
+  <script>
+    // Replace this with your real armored public key before deploying.
+    const PGP_PUBLIC_KEY = `-----BEGIN PGP PUBLIC KEY BLOCK-----
+REPLACE_WITH_YOUR_PUBLIC_KEY
+-----END PGP PUBLIC KEY BLOCK-----`;
+
+    const backendEl = document.getElementById('backend');
+    const messageEl = document.getElementById('message');
+    const statusEl = document.getElementById('status');
+    const sendBtn = document.getElementById('send');
+    const usernameEl = document.getElementById('username');
+    let username = '';
+
+    backendEl.value = '';
+
+    function generateUsername() {
+      const prefixes = ['Falcon', 'Pixel', 'Neon', 'Cipher', 'Nova', 'Echo', 'Comet', 'Drift'];
+      const suffixes = ['Fox', 'Rider', 'Spark', 'Wave', 'Ninja', 'Scope', 'Pilot', 'Leaf'];
+      const a = prefixes[Math.floor(Math.random() * prefixes.length)];
+      const b = suffixes[Math.floor(Math.random() * suffixes.length)];
+      const n = Math.floor(100 + Math.random() * 900);
+      return a + b + n;
+    }
+
+    function refreshUsername() {
+      username = generateUsername();
+      usernameEl.textContent = 'Username: ' + username;
+    }
+
+    refreshUsername();
+
+    function normalizeBaseURL(raw) {
+      const s = (raw || '').trim().replace(/\/$/, '');
+      if (!s) throw new Error('Can nhap Backend URL');
+      return s;
+    }
+
+    sendBtn.addEventListener('click', async () => {
+      try {
+        statusEl.className = '';
+        statusEl.textContent = 'Dang ma hoa...';
+
+        const base = normalizeBaseURL(backendEl.value);
+        if (PGP_PUBLIC_KEY.includes('REPLACE_WITH_YOUR_PUBLIC_KEY')) {
+          throw new Error('Ban chua thay PGP_PUBLIC_KEY trong static-site/index.html');
+        }
+
+        const publicKey = await openpgp.readKey({ armoredKey: PGP_PUBLIC_KEY });
+        const message = await openpgp.createMessage({ text: messageEl.value });
+        const ciphertext = await openpgp.encrypt({
+          message,
+          encryptionKeys: publicKey,
+          format: 'armored'
+        });
+
+        const resp = await fetch(base + '/submit-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, ciphertext })
+        });
+
+        if (!resp.ok) {
+          throw new Error('Gui that bai: HTTP ' + resp.status);
+        }
+
+        statusEl.className = 'ok';
+        statusEl.textContent = 'Da gui thanh cong voi username ' + username + '.';
+        refreshUsername();
+      } catch (err) {
+        statusEl.className = 'err';
+        statusEl.textContent = err.message || String(err);
+      }
+    });
+  </script>
+</body>
+</html>
