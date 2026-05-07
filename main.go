@@ -238,8 +238,25 @@ const screenPageHTML = `<!doctype html>
       min-height: 100vh;
       overflow: hidden;
     }
-    header { padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+		header {
+			padding: 20px 24px;
+			border-bottom: 1px solid rgba(255,255,255,0.15);
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+		}
     h1 { margin: 0; font-size: 28px; }
+		#clearBtn {
+			background: rgba(255,255,255,0.1);
+			color: var(--fg);
+			border: 1px solid rgba(255,255,255,0.25);
+			border-radius: 999px;
+			padding: 8px 14px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		#clearBtn:hover { border-color: rgba(255,255,255,0.45); }
 		#layout {
       display: grid;
 			grid-template-columns: 1fr 1fr;
@@ -324,6 +341,7 @@ const screenPageHTML = `<!doctype html>
 <body>
   <header>
     <h1>Live Encrypted Feed</h1>
+		<button id="clearBtn" type="button">Xoa toan bo du lieu</button>
   </header>
 	<section id="layout">
 		<article class="panel">
@@ -339,6 +357,7 @@ const screenPageHTML = `<!doctype html>
   <script>
 		const encStream = document.getElementById('encStream');
 		const decStream = document.getElementById('decStream');
+		const clearBtn = document.getElementById('clearBtn');
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(proto + '//' + window.location.host + '/ws');
 
@@ -361,6 +380,11 @@ const screenPageHTML = `<!doctype html>
     ws.onmessage = (evt) => {
       try {
         const payload = JSON.parse(evt.data);
+				if (payload.type === 'cleared') {
+					encStream.innerHTML = '';
+					decStream.innerHTML = '';
+					return;
+				}
         addCard(payload.type, payload.report);
       } catch (e) {
         console.error(e);
@@ -373,6 +397,18 @@ const screenPageHTML = `<!doctype html>
       card.textContent = 'WebSocket loi, vui long refresh.';
 			encStream.prepend(card);
     };
+
+		clearBtn.addEventListener('click', async () => {
+			if (!window.confirm('Xoa toan bo du lieu?')) return;
+			try {
+				const resp = await fetch('/admin/clear', { method: 'POST' });
+				if (!resp.ok) throw new Error('Khong the xoa: HTTP ' + resp.status);
+				encStream.innerHTML = '';
+				decStream.innerHTML = '';
+			} catch (e) {
+				alert(e.message || String(e));
+			}
+		});
   </script>
 </body>
 </html>`
@@ -423,6 +459,7 @@ func main() {
 	mux.HandleFunc("/public-key", a.handlePublicKey)
 	mux.HandleFunc("/submit-report", a.handleSubmitReport)
 	mux.HandleFunc("/admin/decrypt-all", a.handleDecryptAll)
+	mux.HandleFunc("/admin/clear", a.handleClearReports)
 	mux.HandleFunc("/ws", a.handleWS)
 
 	server := withCORS(mux)
@@ -635,6 +672,20 @@ func (a *app) handleDecryptAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *app) handleClearReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := a.clearReports(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.broadcast(wsEvent{Type: "cleared"})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
 func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -740,6 +791,22 @@ func (a *app) loadReports() error {
 	}
 	atomic.StoreInt64(&a.nextID, maxID)
 	return nil
+}
+
+func (a *app) clearReports() error {
+	a.mu.Lock()
+	a.reports = nil
+	a.mu.Unlock()
+	atomic.StoreInt64(&a.nextID, 0)
+
+	if err := os.MkdirAll(filepath.Dir(filepath.Clean(a.storagePath)), 0o755); err != nil && filepath.Dir(a.storagePath) != "." {
+		return err
+	}
+	f, err := os.OpenFile(a.storagePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func decryptPGP(privateKeyRing openpgp.EntityList, passphrase, ciphertext string) (string, error) {
